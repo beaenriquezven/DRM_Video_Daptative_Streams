@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    
+    <!-- Load Shaka Player library for DRM video playback -->
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.12.4/dist/shaka-player.compiled.min.js"></script>
+    
+    <!-- Basic page styling -->
+    <style>
+        body { font-family: sans-serif; padding: 1rem; }
+        video { margin-top: 1rem; width: 100%; max-width: 800px; height: auto; }
+        label, select, input, button { margin: 0.5rem 0; display: block; }
+    </style>
+
+    <script>
+        // Predefined video streams with manifest URL, KID, and KEY for ClearKey DRM
+        const streams = {
+            "Video 1": {
+                manifest: "./output_v1.mpd",
+                kid: "c5f3e0c6fd6b812c66aa3d7e3a69fdb0",
+                key: "94e5296ce116b402e6caab6b0d5a5f62"
+            },
+            "Video 2": {
+                manifest: "./output_v2.mpd",
+                kid: "d8006f94ba37aea2489a8ab1e2936612",
+                key: "50a4dd6dffdd167b5507979b867c20ca"
+            },
+            "Video 3": {
+                manifest: "./output_v3.mpd",
+                kid: "89f22a3045f992f9d4a653db662c70d3",
+                key: "e2a484c49eabd3e5781c9e429585b7c2"
+            }
+        };
+
+        let player; // Global player instance
+
+        // Initialize Shaka Player app
+        async function initApp() {
+            shaka.polyfill.installAll(); // Install required polyfills
+
+            // Check browser compatibility
+            if (!shaka.Player.isBrowserSupported()) {
+                console.error("This browser is not compatible with Shaka Player.");
+                return;
+            }
+
+            const video = document.getElementById('video');
+            player = new shaka.Player(video); // Create Shaka Player instance
+            window.player = player; // Make available in global scope for debugging
+
+            // Handle player errors
+            player.addEventListener('error', onErrorEvent);
+
+            // Populate video selection dropdown
+            populateVideoSelector();
+
+            // When a video is selected, update the manifest, KID, and KEY fields
+            document.getElementById('videoSelector').addEventListener("change", () => {
+                const selectedName = document.getElementById("videoSelector").value;
+                const stream = streams[selectedName];
+
+                if (stream) {
+                    document.getElementById("manifest").value = stream.manifest;
+                    document.getElementById("kid").value = stream.kid;
+                    document.getElementById("key").value = stream.key;
+                }
+            });
+
+            // Load video when button is clicked
+            document.getElementById('loadButton').addEventListener("click", async () => {
+                const manifest = document.getElementById('manifest').value.trim();
+                const kid = document.getElementById('kid').value.trim();
+                const key = document.getElementById('key').value.trim();
+
+                if (!manifest || !kid || !key) {
+                    console.error("Required fields are missing.");
+                    return;
+                }
+
+                await loadVideo(manifest, kid, key); // Load the selected video
+            });
+        }
+
+        // Populate the dropdown with available video options
+        function populateVideoSelector() {
+            const selector = document.getElementById("videoSelector");
+            for (let name in streams) {
+                const option = document.createElement("option");
+                option.value = name;
+                option.textContent = name;
+                selector.appendChild(option);
+            }
+        }
+
+        // Load the video with DRM configuration
+        async function loadVideo(manifest, kid, key) {
+            try {
+                // Configure player with ClearKey DRM
+                player.configure({
+                    drm: {
+                        clearKeys: {
+                            [kid]: key
+                        }
+                    },
+                    abr: {
+                        enabled: false // Disable automatic bitrate switching
+                    }
+                });
+
+                await player.load(manifest); // Load the video manifest
+                console.log("Video loaded successfully:", manifest);
+
+                initBitrateSelector(); // Load available bitrate options
+
+            } catch (error) {
+                onError(error); // Handle errors
+            }
+        }
+
+        // Populate and configure bitrate selector
+        function initBitrateSelector() {
+            const select = document.querySelector('.variantSelector');
+            const variants = player.getVariantTracks();
+
+            select.innerHTML = ""; // Clear previous options
+
+            variants.forEach((variant, index) => {
+                const option = document.createElement("option");
+                option.value = index;
+                option.textContent = `${(variant.videoBandwidth / 1024).toFixed(0)} Kb`;
+                if (variant.active) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+
+            // Change bitrate on selection
+            select.onchange = () => {
+                const selected = parseInt(select.value);
+                const variant = player.getVariantTracks()[selected];
+                player.selectVariantTrack(variant, true); // Force switch
+                player.configure({ abr: { enabled: false } }); // Keep ABR off
+                console.log("Bitrate selected:", variant.videoBandwidth);
+            };
+        }
+
+        // Error handler for Shaka Player events
+        function onErrorEvent(event) {
+            onError(event.detail);
+        }
+
+        // General error logging
+        function onError(error) {
+            console.error("Shaka Player error:", error);
+        }
+
+        // Start the app once the DOM is fully loaded
+        document.addEventListener("DOMContentLoaded", initApp);
+    </script>
+</head>
+
+<body>
+    <h2>ClearKey DRM Video Player</h2>
+
+    <!-- Video selection dropdown -->
+    <label>Select video:</label>
+    <select id="videoSelector">
+        <option disabled selected>-- Select --</option>
+    </select>
+
+    <!-- Input fields for manifest URL, KID, and KEY -->
+    <label>Manifest:</label>
+    <input type="text" id="manifest">
+
+    <label>KID:</label>
+    <input type="text" id="kid">
+
+    <label>KEY:</label>
+    <input type="text" id="key">
+
+    <!-- Button to load the selected video -->
+    <button id="loadButton">Load Video</button>
+
+    <!-- Bitrate selection dropdown -->
+    <div>
+        <label>Bitrate:</label>
+        <select class="variantSelector"></select> <label>Kb</label>
+    </div>
+
+    <!-- HTML5 video element -->
+    <video id="video" height="720" width="1280" controls autoplay></video>
+</body>
+</html>

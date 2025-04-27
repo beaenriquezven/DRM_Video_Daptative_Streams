@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- Load Shaka Player library -->
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.12.4/dist/shaka-player.compiled.min.js"></script>
+    
+    <!-- Basic styling -->
+    <style>
+        body { font-family: sans-serif; padding: 1rem; }
+        video { margin-top: 1rem; width: 100%; max-width: 800px; height: auto; }
+        label, select, button { margin: 0.5rem 0; display: block; }
+    </style>
+</head>
+<body>
+    <h2>DRM ClearKey Player</h2>
+
+    <!-- Stream selector UI -->
+    <label>Select video:</label>
+    <select id="streamSelector"></select>
+    <button id="loadButton">Load Video</button>
+
+    <!-- Bitrate selection UI -->
+    <label>Video bitrate:</label>
+    <select id="variantSelector"></select>
+    <button id="applyBitrateButton">Apply Bitrate</button>
+
+    <!-- Video element -->
+    <video id="video" controls autoplay></video>
+
+    <script>
+        // Available DRM-protected video streams with ClearKey info
+        const streams = {
+            "Video 1": {
+                manifest: "./output_v1.mpd",
+                kid: "c5f3e0c6fd6b812c66aa3d7e3a69fdb0",
+                key: "94e5296ce116b402e6caab6b0d5a5f62"
+            },
+            "Video 2": {
+                manifest: "./output_v2.mpd",
+                kid: "d8006f94ba37aea2489a8ab1e2936612",
+                key: "50a4dd6dffdd167b5507979b867c20ca"
+            },
+            "Video 3": {
+                manifest: "./output_v3.mpd",
+                kid: "89f22a3045f992f9d4a653db662c70d3",
+                key: "e2a484c49eabd3e5781c9e429585b7c2"
+            }
+        };
+
+        let player; // Global Shaka player instance
+        let currentVariants = []; // List of available bitrates for the loaded video
+
+        // Initialize application when DOM is ready
+        function initApp() {
+            shaka.polyfill.installAll(); // Install browser polyfills
+
+            // Check if Shaka is supported
+            if (shaka.Player.isBrowserSupported()) {
+                initPlayer();
+                populateStreamSelector();
+            } else {
+                console.error("Browser not supported!");
+            }
+
+            // Set up event listeners for buttons
+            document.getElementById("loadButton").addEventListener("click", loadVideo);
+            document.getElementById("applyBitrateButton").addEventListener("click", applyBitrate);
+        }
+
+        // Populate the video selector dropdown with stream names
+        function populateStreamSelector() {
+            const selector = document.getElementById("streamSelector");
+            for (const name in streams) {
+                const option = document.createElement("option");
+                option.value = name;
+                option.textContent = name;
+                selector.appendChild(option);
+            }
+        }
+
+        // Initialize the Shaka Player and attach it to the video element
+        function initPlayer() {
+            const video = document.getElementById("video");
+            player = new shaka.Player(video);
+            window.player = player;
+
+            // Listen for error events
+            player.addEventListener("error", onErrorEvent);
+        }
+
+        // Load the selected video using ClearKey DRM
+        async function loadVideo() {
+            const selectedName = document.getElementById("streamSelector").value;
+            const stream = streams[selectedName];
+            if (!stream) return;
+
+            try {
+                // Configure DRM ClearKey and disable adaptive bitrate switching
+                await player.configure({
+                    drm: {
+                        clearKeys: {
+                            [stream.kid]: stream.key
+                        }
+                    },
+                    abr: { enabled: false }
+                });
+
+                // Load the manifest file
+                await player.load(stream.manifest);
+                console.log("Video loaded!");
+
+                // Get available variants and fill the bitrate selector
+                currentVariants = player.getVariantTracks();
+                const current = currentVariants.find(v => v.active); // Find current active variant
+
+                const variantSelector = document.getElementById("variantSelector");
+                variantSelector.innerHTML = currentVariants.map((v, i) =>
+                    `<option value="${i}" ${v.id === current.id ? "selected" : ""}>${(v.videoBandwidth / 1024).toFixed(0)} Kbps</option>`
+                ).join("");
+            } catch (err) {
+                onError(err);
+            }
+        }
+
+        // Apply the selected bitrate variant manually
+        function applyBitrate() {
+            const selectedIndex = document.getElementById("variantSelector").value;
+            const variant = currentVariants[selectedIndex];
+            if (!variant) return;
+
+            // Disable ABR and force selection of a specific variant
+            player.configure({ abr: { enabled: false } });
+            player.selectVariantTrack(variant, true);
+
+            // Restart playback from beginning
+            const video = document.getElementById("video");
+            video.currentTime = 0;
+            video.play().catch(e => console.warn("Autoplay blocked:", e));
+
+            console.log("Bitrate applied:", variant.bandwidth);
+        }
+
+        // Error event handler
+        function onErrorEvent(event) {
+            onError(event.detail);
+        }
+
+        // Generic error handler
+        function onError(error) {
+            console.error("Error code", error.code, "object", error);
+        }
+
+        // Start the app when the page has finished loading
+        document.addEventListener("DOMContentLoaded", initApp);
+    </script>
+</body>
+</html>
